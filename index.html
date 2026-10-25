@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ஓலை Olai — The Palm-Leaf Intelligence</title>
+<meta name="description" content="Olai (ஓலை) is India's edge AI: a 354.5M-parameter model merged from open-source giants by REA — zero GPU training — packed in the .olai format that loads 3.76× smaller. Test it in your browser.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌴</text></svg>">
+</head>
+<body>
+<header>
+  <nav>
+    <span class="brand">ஓலை <b>OLAI</b></span>
+    <a href="index.html#story">Story</a>
+    <a href="index.html#how">How it works</a>
+    <a href="index.html#models">Models</a>
+    <a href="index.html#bench">Benchmarks</a>
+    <a class="cta" href="lab.html">Test it →</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <p class="tamil">ஓலை</p>
+  <h1>The Palm-Leaf Intelligence</h1>
+  <p class="sub">Two thousand years ago, Tamil scholars packed entire libraries onto dried <em>olai</em> palm leaves — compressed, portable, built to survive.<br>
+  <b>Olai does the same for edge AI.</b> Merged from open-source giants. Zero GPU training. Runs on a phone.</p>
+  <div class="chips">
+    <span class="chip"><b>354.5M</b> params</span>
+    <span class="chip"><b>188.6 MB</b> packed (3.76×)</span>
+    <span class="chip"><b>0.062 ms</b> header parse</span>
+    <span class="chip"><b>0</b> GPUs used</span>
+    <span class="chip"><b>3</b> architectures fused</span>
+  </div>
+  <div class="hero-actions">
+    <a class="btn primary" href="lab.html">Run the Lab →</a>
+    <a class="btn ghost" href="https://github.com/stromplayz/olai" >★ This site</a>
+    <a class="btn ghost" href="https://github.com/stromplayz/olai-core">Core (private)</a>
+  </div>
+</section>
+
+<section id="story">
+  <h2>Why another model?</h2>
+  <p>Every frontier AI today carries three taxes: a <b>key-value cache</b> that grows until phones choke, <b>one-token-at-a-time thinking</b>, and <b>weights that take seconds to load</b>. Olai attacks all three from India, on a zero budget — by refusing to train at all.</p>
+  <p>Instead of burning crores on GPUs, Olai's engine <b>REA</b> (Recursive Extraction &amp; Assimilation) reverse-engineers the trained weights of open-source models — Liquid LFM2.5, SmolLM2, DeepSeek-R1 distills, Qwen, Gemma-class — reads them as <em>knowledge packets</em>, and merges the best of each into one compact edge model. The weights are already trained; we just re-pack them.</p>
+</section>
+
+<section id="how">
+  <h2>The REA pipeline</h2>
+  <div class="pipeline">
+    <div class="step"><span>1</span><h3>Inspect</h3><p>Fingerprints any safetensors checkpoint: architecture, 40+ functional roles, spectral stats (σ-max via power iteration).</p></div>
+    <div class="step"><span>2</span><h3>Harvest</h3><p>Pulls selected tensors from <b>any</b> Hugging Face model over HTTP range requests — DeepSeek's FFN slices in 165 MB, not 3.5 GB.</p></div>
+    <div class="step"><span>3</span><h3>Assimilate</h3><p>Projects foreign subspaces across architectures (approx-SVD top-r, relative-depth alignment) into the Olai anchor.</p></div>
+    <div class="step"><span>4</span><h3>Pack</h3><p>Emits <b>.olai</b>: 4096-aligned packets, 64-byte fixed-stride binary directory, native int4 quantization, per-packet CRC32.</p></div>
+  </div>
+  <h3 class="subhead">What survives the merge — and what doesn't</h3>
+  <p class="small">We measured donor deltas before trusting them: LFM2-Math/ENJP checkpoints carry deltas <b>3.4× larger than the weights themselves</b> (cos similarity between their deltas: 0.21 — near-orthogonal). Merging them poisoned the model; even a 10%-weight soup failed. So Olai merges <b>same-basin only</b>: the LFM2.5 anchor, true LoRA-scale donors, and cross-architecture FFN subspaces — each step gated by live evals.</p>
+</section>
+
+<section id="models">
+  <h2>Models</h2>
+  <table>
+    <tr><th>Model</th><th>Ancestry</th><th>Size</th><th>Status</th></tr>
+    <tr><td><b>Olai-350M</b></td><td>LFM2.5-350M ⊕ python-math LoRA ⊕ SmolLM2-360M (cross-arch, rank-32, 48 tensors)</td><td>188.6 MB</td><td><b>flagship</b> — downloadable from core releases</td></tr>
+    <tr><td>Olai-350M-Gen2</td><td>LFM2.5-350M ⊕ python-math (TIES λ=0.4)</td><td>188.6 MB</td><td>stable</td></tr>
+    <tr><td>Alai-350M-Gen1</td><td>LFM2.5 ⊕ Math ⊕ ENJP-MT (legacy, DARE-TIES)</td><td>188.6 MB</td><td>archived</td></tr>
+  </table>
+  <p class="small">Ancestry is fully reproducible: every merge is a deterministic function of SHA-256-verified inputs. No training runs, no data, no GPUs — only arithmetic on released weights.</p>
+</section>
+
+<section id="bench">
+  <h2>Format benchmarks — .olai vs safetensors</h2>
+  <table>
+    <tr><th>Metric</th><th>safetensors (BF16)</th><th>.olai v1</th><th>Δ</th></tr>
+    <tr><td>File size (354.5M params)</td><td>709.0 MB</td><td><b>188.6 MB</b></td><td>3.76× smaller</td></tr>
+    <tr><td>Header/directory parse</td><td>0.218 ms (JSON)</td><td><b>0.062 ms</b> (binary)</td><td>3.5× faster</td></tr>
+    <tr><td>Raw packet touch (IO-only path)</td><td>—</td><td><b>0.0 ms</b> (188 MB mmap)</td><td>zero-copy</td></tr>
+    <tr><td>Materialize → f32 (with dequant)</td><td>241.6 ms</td><td>658.8 ms</td><td>honest dequant tax*</td></tr>
+  </table>
+  <p class="small">*One-time CPU dequantization; the engine then computes against resident weights. Packed-domain matvec (skip dequant entirely) is the v0.3 roadmap item. Measured on a 2-core container, warm page cache; ratios are the signal.</p>
+</section>
+
+<section id="lab-cta">
+  <h2>Test it right now</h2>
+  <p>The <a href="lab.html"><b>Olai Lab</b></a> runs real Rust code in your browser (WebAssembly): it fetches the actual first megabyte of the flagship pack, verifies its CRC-32 header, walks the binary directory, and lists all 148 tensor packets with their quantization mix. No mock data — that's the real file this site was deployed with, pulled from the private core repo by GitHub Actions.</p>
+  <a class="btn primary big" href="lab.html">Open the Lab →</a>
+</section>
+
+<footer>
+  <p>சங்கம் Labs · Sangam Labs — built in India, on free tools only.</p>
+  <p class="small">Weights: LFM Open License v1.0 (LiquidAI LFM2.5) · Apache-2.0 (SmolLM2) · MIT (DeepSeek-R1-Distill) · Gemma excluded by license. Code: MIT. Model artifacts are merge derivatives, attribution preserved in <a href="https://github.com/stromplayz/olai/blob/main/NOTICE.md">NOTICE.md</a>.</p>
+</footer>
+</body>
+</html>

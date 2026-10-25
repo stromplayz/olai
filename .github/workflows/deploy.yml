@@ -1,0 +1,82 @@
+name: build & deploy Olai site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # The private->public bridge: OLAI_PAT is a repo SECRET (encrypted env).
+      # It grants read access to stromplayz/olai-core releases only.
+      - name: Pull Olai-350M from private core repo
+        env:
+          OLAI_PAT: ${{ secrets.OLAI_PAT }}
+        run: |
+          set -euo pipefail
+          ASSET_URL=$(curl -sf -H "Authorization: Bearer $OLAI_PAT" \
+            https://api.github.com/repos/stromplayz/olai-core/releases/latest \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print([a['url'] for a in d.get('assets',[]) if a['name']=='Olai-350M.olai'][0])")
+          echo "asset: $ASSET_URL"
+          curl -sfL -H "Authorization: Bearer $OLAI_PAT" -H "Accept: application/octet-stream" \
+            -o model.olai "$ASSET_URL"
+          ls -la model.olai
+          mkdir -p site/data site/wasm
+          head -c 1048576 model.olai > site/data/pack-head.bin
+          mkdir -p tok
+          curl -sfL -o tok/tokenizer.json https://huggingface.co/liquidai/LFM2.5-350M/resolve/main/tokenizer.json
+
+      - name: Build engine + generate live samples
+        run: |
+          set -euo pipefail
+          cargo build --release -p alai-cli
+          python3 scripts/gen_samples.py model.olai tok site/data/samples.json
+
+      - name: Build WASM pack inspector
+        run: |
+          set -euo pipefail
+          cargo build --release -p olai-wasm --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/olai_wasm.wasm site/wasm/olai_wasm.wasm
+
+      - name: Sanity-check site artifacts
+        run: |
+          test -s site/data/pack-head.bin
+          test -s site/data/samples.json
+          test -s site/wasm/olai_wasm.wasm
+          node -e "
+            const fs=require('fs');
+            const b=fs.readFileSync('site/data/pack-head.bin');
+            if (b.slice(0,4).toString()!=='OLAI') { throw new Error('bad magic in pack head'); }
+            console.log('pack head magic OK, bytes:', b.length);
+          "
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

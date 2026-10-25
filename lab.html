@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Olai Lab — test the model in your browser</title>
+<meta name="description" content="Run real Rust code on the real Olai-350M .olai pack in your browser: CRC verification, binary directory walk, tensor inventory. Plus live engine samples generated on GitHub Actions.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <nav>
+    <a class="brand" href="index.html">ஓலை <b>OLAI</b></a>
+    <a href="index.html#how">How it works</a>
+    <a href="index.html#models">Models</a>
+    <a class="cta" href="#inspector">Pack inspector</a>
+    <a class="cta" href="#samples">Engine samples</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <h1>🔬 The Olai Lab</h1>
+  <p class="sub">Two instruments, zero mocks. <b>(1)</b> A WebAssembly build of the <code>.olai</code> parser inspects the genuine flagship pack in your browser. <b>(2)</b> Generation samples come from the pure-Rust engine executing on GitHub's runners during every deploy of this page.</p>
+</section>
+
+<section id="inspector">
+  <h2>Pack inspector <span class="pill">WebAssembly · Rust</span></h2>
+  <p class="small">This page ships <code>wasm/olai_wasm.wasm</code> — the real <code>.olai</code> format reader compiled to wasm32 — and <code>data/pack-head.bin</code>, the first megabyte of <b>Olai-350M.olai</b> pulled from the private core repo at deploy time. Your browser verifies the CRC-32 header and walks the binary directory, exactly like the native engine does.</p>
+  <div id="inspector-status" class="status">⏳ loading wasm + pack head…</div>
+  <div id="inspector-out" hidden>
+    <div class="chips" id="pack-chips"></div>
+    <div class="quantbar" id="quantbar"></div>
+    <input id="tensor-filter" type="text" placeholder="filter tensors… (e.g. feed_forward, self_attn, layers.10)" />
+    <div class="tablewrap"><table id="tensor-table"></table></div>
+  </div>
+</section>
+
+<section id="samples">
+  <h2>Live engine samples <span class="pill">GitHub Actions · pure Rust</span></h2>
+  <p class="small">Every deploy of this site downloads Olai-350M from the private <code>olai-core</code> release, builds <code>alai-engine</code> from source, and generates fresh completions on the runner. These are the exact outputs of the latest build:</p>
+  <div id="samples-out" class="status">⏳ loading samples.json…</div>
+</section>
+
+<section id="provenance">
+  <h2>How this page is built</h2>
+  <ol class="small">
+    <li>GitHub Actions (public repo) requests <code>releases/latest</code> from the private <code>olai-core</code> repo using the <code>OLAI_PAT</code> <b>secret</b> — the token exists only as an encrypted Actions env var, never in this site's code or bundle.</li>
+    <li>The 188.6 MB flagship pack is downloaded; its first megabyte becomes <code>pack-head.bin</code>.</li>
+    <li><code>alai-engine</code> is compiled from source and run over a fixed prompt set (English + Tamil); outputs land in <code>samples.json</code>.</li>
+    <li>The <code>olai</code> format crate is cross-compiled to <code>wasm32-unknown-unknown</code> and shipped to your browser.</li>
+    <li>Everything deploys to GitHub Pages. You are reading the result.</li>
+  </ol>
+</section>
+
+<footer>
+  <p>சங்கம் Labs · <a href="index.html">← back to the story</a></p>
+</footer>
+
+<script>
+// ---------- WASM pack inspector ----------
+(async () => {
+  const status = document.getElementById('inspector-status');
+  const out = document.getElementById('inspector-out');
+  try {
+    const [wasmBuf, head] = await Promise.all([
+      fetch('wasm/olai_wasm.wasm').then(r => {
+        if (!r.ok) throw new Error('wasm not found');
+        return r.arrayBuffer();
+      }),
+      fetch('data/pack-head.bin').then(r => {
+        if (!r.ok) throw new Error('pack head not found');
+        return r.arrayBuffer();
+      }),
+    ]);
+    const { instance } = await WebAssembly.instantiate(wasmBuf, {});
+    const e = instance.exports;
+
+    const scratch = e.olaiw_alloc(head.byteLength);
+    new Uint8Array(e.memory.buffer).set(new Uint8Array(head), scratch);
+    const h = e.olaiw_open(scratch, head.byteLength);
+    if (!h) throw new Error('CRC/magic verification FAILED');
+
+    const outCap = 1 << 20;
+    const outPtr = e.olaiw_alloc(outCap);
+    const n = e.olaiw_summary_json(h, outPtr, outCap);
+    if (n < 0) throw new Error('summary overflow');
+    const summary = JSON.parse(new TextDecoder().decode(new Uint8Array(e.memory.buffer).slice(outPtr, outPtr + n)));
+
+    // chips
+    const chips = document.getElementById('pack-chips');
+    chips.innerHTML = [
+      `<span class="chip ok"><b>✓ CRC valid</b> (header)</span>`,
+      `<span class="chip"><b>${summary.dir_count}</b> tensors</span>`,
+      `<span class="chip"><b>.olai v${summary.version}</b></span>`,
+      `<span class="chip">payload @ <b>${(summary.payload_offset/1024).toFixed(0)} KiB</b></span>`,
+      `<span class="chip">head shipped: <b>${(summary.head_bytes/1048576).toFixed(1)} MB</b> of 188.6 MB</span>`,
+    ].join('');
+
+    // quant mix bar
+    const mix = {};
+    summary.tensors.forEach(t => mix[t.quant] = (mix[t.quant] || 0) + 1);
+    const total = summary.dir_count;
+    const colors = { I4_SYM: '#e8a33d', I8_SYM: '#7fd1b9', RAW: '#5b8bd0' };
+    const bar = document.getElementById('quantbar');
+    bar.innerHTML = Object.entries(mix).map(([q, c]) =>
+      `<span class="seg" style="width:${(c/total*100).toFixed(1)}%;background:${colors[q] || '#888'}" title="${q}: ${c}"></span>`).join('')
+      + `<span class="quantlegend">` + Object.entries(mix).map(([q, c]) =>
+          `<i style="background:${colors[q] || '#888'}"></i>${q} ×${c}`).join(' ') + `</span>`;
+
+    // tensor table + filter
+    const table = document.getElementById('tensor-table');
+    const filter = document.getElementById('tensor-filter');
+    const render = () => {
+      const q = (filter.value || '').toLowerCase();
+      const rows = summary.tensors.filter(t => !q || t.name.toLowerCase().includes(q)).slice(0, 160);
+      table.innerHTML = '<tr><th>#</th><th>tensor</th><th>dims</th><th>encoding</th><th>packet bytes</th><th>crc32</th></tr>'
+        + rows.map(t => `<tr><td>${t.i}</td><td class="mono">${t.name}</td><td>${t.dims.join('×')}</td><td>${t.quant}${t.group ? '·g' + t.group : ''}</td><td>${t.nbytes.toLocaleString()}</td><td class="mono">${t.crc}</td></tr>').join('')
+        + (rows.length === 0 ? '<tr><td colspan="6">no match</td></tr>' : '');
+    };
+    filter.addEventListener('input', render);
+    render();
+
+    status.hidden = true;
+    out.hidden = false;
+  } catch (err) {
+    status.innerHTML = `⚠️ ${err.message} — the deploy may still be building the wasm artifact. Samples below work regardless.`;
+  }
+})();
+
+// ---------- engine samples ----------
+(async () => {
+  const el = document.getElementById('samples-out');
+  try {
+    const r = await fetch('data/samples.json');
+    if (!r.ok) throw new Error('samples.json not found');
+    const d = await r.json();
+    el.className = '';
+    el.innerHTML = `<p class="small">model <b>${d.model}</b> · engine <b>${d.engine}</b> · runner <b>${d.runner}</b> · generated <b>${d.generated}</b></p>`
+      + d.samples.map(s => `
+        <div class="sample">
+          <div class="prompt">▸ ${s.prompt}</div>
+          <div class="reply">${s.reply.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>
+          <div class="meta">${s.max_new} tokens · ${s.secs}s · ${(s.max_new / s.secs).toFixed(1)} tok/s</div>
+        </div>`).join('');
+  } catch (err) {
+    el.innerHTML = `⚠️ ${err.message} — deploy may still be running. Refresh in a minute.`;
+  }
+})();
+</script>
+</body>
+</html>
