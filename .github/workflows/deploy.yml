@@ -43,17 +43,27 @@ jobs:
           mkdir -p tok
           curl -sfL -o tok/tokenizer.json https://huggingface.co/liquidai/LFM2.5-350M/resolve/main/tokenizer.json
 
+      - name: Clone private core (engine sources) via OLAI_PAT
+        env:
+          OLAI_PAT: ${{ secrets.OLAI_PAT }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${OLAI_PAT}@github.com/stromplayz/olai-core.git" core
+          cd core && git log --oneline -1
+
       - name: Build engine + generate live samples
         run: |
           set -euo pipefail
+          cd core
           cargo build --release -p alai-cli
-          python3 scripts/gen_samples.py model.olai tok site/data/samples.json
+          python3 ../scripts/gen_samples.py ../model.olai ../tok ../site/data/samples.json
 
       - name: Build WASM pack inspector
         run: |
           set -euo pipefail
+          cd core
           cargo build --release -p olai-wasm --target wasm32-unknown-unknown
-          cp target/wasm32-unknown-unknown/release/olai_wasm.wasm site/wasm/olai_wasm.wasm
+          cp target/wasm32-unknown-unknown/release/olai_wasm.wasm ../site/wasm/olai_wasm.wasm
 
       - name: Sanity-check site artifacts
         run: |
